@@ -12,6 +12,7 @@ class BinanceFuturesClient:
         self.base_url = "https://testnet.binancefuture.com"
         self.api_key = os.getenv("BINANCE_API_KEY")
         self.api_secret = os.getenv("BINANCE_API_SECRET")
+        self.last_error = None
 
         if not self.api_key or not self.api_secret:
             logger.error(
@@ -50,6 +51,7 @@ class BinanceFuturesClient:
         }
 
         logger.info(f"Sending {method} request to {endpoint}")
+        self.last_error = None
 
         try:
             if method == "POST":
@@ -63,7 +65,13 @@ class BinanceFuturesClient:
         except requests.exceptions.HTTPError as http_err:
             logger.error(
                 f"API Error: {response.status_code} - {response.text}")
+            try:
+                self.last_error = response.json().get("msg") or response.text
+            except ValueError:
+                self.last_error = response.text
+            self.last_error = f"HTTP {response.status_code}: {self.last_error}"
             return None
         except requests.exceptions.RequestException as req_err:
             logger.error(f"Network/Request Error: {req_err}")
+            self.last_error = f"Network error: {req_err.__class__.__name__}"
             return None

@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from dotenv import load_dotenv
 from textual.app import App, ComposeResult
@@ -9,7 +10,7 @@ from textual.events import Key
 
 from bot.client import BinanceFuturesClient
 from bot.orders import place_order
-from bot.validators import validate_order_inputs
+from bot.validators import get_order_validation_error
 
 ASSET_MAP = {
     "bitcoin": "BTCUSDT", "btc": "BTCUSDT",
@@ -19,6 +20,8 @@ ASSET_MAP = {
 
 
 class TradingApp(App):
+    TITLE = "Binance Futures Testnet Bot"
+
     # CSS: Added trend colors and table styling
     CSS = """
     Screen { layout: vertical; }
@@ -37,11 +40,6 @@ class TradingApp(App):
     def __init__(self):
         super().__init__()
         load_dotenv()
-        self.client = BinanceFuturesClient()
-
-        # Command History State
-        self.history = []
-        self.history_idx = -1
 
         # Prevent background API logs from bleeding into the UI
         bot_logger = logging.getLogger("TradingBot")
@@ -49,8 +47,14 @@ class TradingApp(App):
             if type(handler) is logging.StreamHandler:
                 bot_logger.removeHandler(handler)
 
+        self.client = BinanceFuturesClient()
+
+        # Command History State
+        self.history = []
+        self.history_idx = -1
+
     def compose(self) -> ComposeResult:
-        yield Header("Binance Futures Testnet Bot")
+        yield Header(show_clock=True)
 
         with Horizontal(id="main-container"):
             with Vertical(id="sidebar"):
@@ -71,6 +75,7 @@ class TradingApp(App):
 
         self.query_one(RichLog).write(
             "[bold green]System Initialized.[/bold green] Type 'help' for commands.")
+        self.query_one("#cmd-input", Input).focus()
         self.update_dashboard()
 
     def update_sparkline_data(self, prices):
@@ -105,6 +110,9 @@ class TradingApp(App):
                     stats += f"Available: ${float(usdt_bal['availableBalance']):.2f}\n"
                     self.call_from_thread(self.query_one(
                         "#wallet-stats").update, stats)
+            else:
+                self.call_from_thread(self.query_one(RichLog).write,
+                                      f"[red]Failed to fetch wallet balance: {self.client.last_error or 'see bot.log'}[/red]")
 
             # Update Graph Data
             klines = self.client.get_klines("BTCUSDT", "1h", 24)
@@ -125,18 +133,17 @@ class TradingApp(App):
 
         action = parts[0]
 
-        if action == 'exit':
-            return
         if action == "help":
             log.write("Supported Commands:")
             log.write(
-                " - [cyan]buy [asset] [qty] [price*][/cyan] (e.g., buy btc 0.01)")
+                " - [cyan]buy \\[asset] \\[qty] \\[price*][/cyan] (e.g., buy btc 0.01)")
             log.write(
-                " - [red]sell [asset] [qty] [price*][/red] (e.g., sell eth 0.5 3500)")
+                " - [red]sell \\[asset] \\[qty] \\[price*][/red] (e.g., sell eth 0.5 3500)")
             log.write(
                 "   [i dim]*Add a price at the end to place a LIMIT order. Omit for a MARKET order.[/i dim]")
-            log.write(" - [yellow]price [asset][/yellow] (e.g., price btc)")
+            log.write(" - [yellow]price \\[asset][/yellow] (e.g., price btc)")
             log.write(" - [blue]balance[/blue] (Refreshes the dashboard)")
+            log.write(" - [magenta]exit[/magenta] (Quits the app)")
             return
 
         if action == "balance":
@@ -158,6 +165,9 @@ class TradingApp(App):
             if price_data:
                 log.write(
                     f"📈 [bold]{symbol}[/bold] Current Price: [yellow]${float(price_data['price']):.2f}[/yellow]")
+            else:
+                log.write(
+                    f"[red]Error: Failed to fetch {symbol} price: {self.client.last_error or 'see bot.log'}[/red]")
             return
 
         if action in ["buy", "sell"]:
@@ -187,8 +197,15 @@ class TradingApp(App):
                 return
 
             # Determine order type
-            order_type = "LIMIT" if price else "MARKET"
-            price_log = f" at ${price}" if price else " at MARKET"
+            order_type = "LIMIT" if price is not None else "MARKET"
+            price_log = f" at ${price}" if price is not None else " at MARKET"
+
+            validation_error = get_order_validation_error(
+                symbol, action.upper(), order_type, qty, price)
+            if validation_error:
+                log.write(f"[red]Error: {validation_error}[/red]")
+                return
+
             color = "green" if action == "buy" else "red"
 
             log.write(
@@ -196,9 +213,15 @@ class TradingApp(App):
 
             try:
                 # Pass the dynamically determined order_type and price to the API
-                place_order(symbol, action.upper(), order_type, qty, price)
+                response = place_order(
+                    symbol, action.upper(), order_type, qty, price, client=self.client)
+                if not response:
+                    log.write(
+                        f"[bold red]Order failed: {self.client.last_error or 'see bot.log for details'}[/bold red]")
+                    return
+
                 log.write(
-                    "[bold green]Order API call completed! Check bot.log for details.[/bold green]")
+                    f"[bold green]Order placed! ID: {response['orderId']} | Status: {response.get('status')}[/bold green]")
 
                 # Add to the recent trades table visually
                 self.call_from_thread(
@@ -212,6 +235,10 @@ class TradingApp(App):
         event.input.value = ""
 
         if not cmd:
+            return
+
+        if cmd.lower() == "exit":
+            self.exit()
             return
 
         # Command History Logic
@@ -250,5 +277,8 @@ class TradingApp(App):
 
 
 if __name__ == "__main__":
-    app = TradingApp()
+    try:
+        app = TradingApp()
+    except ValueError as e:
+        sys.exit(f"Error: {e}. Set BINANCE_API_KEY and BINANCE_API_SECRET in a .env file (see README).")
     app.run()
