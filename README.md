@@ -29,7 +29,7 @@ pip install -r requirements.txt
 2. Configure Environment Variables (Crucial Step)
 This application requires your Binance Testnet API credentials to function. You must create a .env file to store these securely.
 
-Create a new file named .env in the root directory of this project (in the same folder as tui.py).
+Create a new file named .env in the root directory of this project (in the same folder as cli.py).
 
 Open the .env file and add your credentials exactly like this:
 
@@ -43,7 +43,7 @@ How to Run
 
 Launch the interactive dashboard by running the following command in your terminal:
 
-python tui.py
+python cli.py
 
 
 Supported Commands
@@ -65,6 +65,8 @@ price <asset> : Fetches the current ticker price (e.g., price sol).
 balance : Manually forces a refresh of your wallet data and graph.
 
 help : Displays the command list inside the UI.
+
+exit : Quits the app.
 
 Note: You can use the Up and Down arrow keys to cycle through your command history!
 
