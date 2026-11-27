@@ -40,17 +40,18 @@ class TradingApp(App):
     def __init__(self):
         super().__init__()
         load_dotenv()
-        self.client = BinanceFuturesClient()
-
-        # Command History State
-        self.history = []
-        self.history_idx = -1
 
         # Prevent background API logs from bleeding into the UI
         bot_logger = logging.getLogger("TradingBot")
         for handler in bot_logger.handlers[:]:
             if type(handler) is logging.StreamHandler:
                 bot_logger.removeHandler(handler)
+
+        self.client = BinanceFuturesClient()
+
+        # Command History State
+        self.history = []
+        self.history_idx = -1
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
